@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mia-rag"
+version = "0.1.0"
+description = "RAG and Tkinter reader for 20 classic works of Marxist political economy"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "vbe-robotron" }]
+keywords = ["rag", "marxist-economics", "tkinter", "ollama", "opencode"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Environment :: X11 Applications",
+  "Topic :: Education",
+]
+dependencies = ["numpy>=1.24"]
+
+[project.scripts]
+mia-rag = "mia_rag.cli:main"
+mia-rag-gui = "mia_rag.gui:main"
+
+[project.urls]
+Homepage = "https://github.com/vbe-robotron/mia-rag"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mia_rag"]

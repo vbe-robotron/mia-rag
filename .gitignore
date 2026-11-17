@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+*.pem
+server.log
+serve_https.py
+marxist_economics_20texts.zip
+text/
+rag/
+*.npy
+*.db
+chunks.jsonl

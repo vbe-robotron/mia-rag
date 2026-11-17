@@ -1,0 +1,64 @@
+Marxist Economics Reader - 20 core texts
+Source: Marxists Internet Archive (https://www.marxists.org/)
+Retrieved: 2026-11-17
+
+01_Marx_Capital_Vol_I.txt
+  index: https://www.marxists.org/archive/marx/works/1867-c1/
+  chars: 2397215
+02_Marx_Capital_Vol_II.txt
+  index: https://www.marxists.org/archive/marx/works/1885-c2/
+  chars: 1308341
+03_Marx_Capital_Vol_III.txt
+  index: https://www.marxists.org/archive/marx/works/1894-c3/
+  chars: 2311228
+04_Marx_Grundrisse.txt
+  index: https://www.marxists.org/archive/marx/works/1857/grundrisse/
+  chars: 2097960
+05_Marx_Theories_of_Surplus_Value.txt
+  index: https://www.marxists.org/archive/marx/works/1863/theories-surplus-value/
+  chars: 3877657
+06_Marx_Critique_of_Political_Economy.txt
+  index: https://www.marxists.org/archive/marx/works/1859/critique-pol-economy/
+  chars: 524178
+07_Marx_Wage_Labour_and_Capital.txt
+  index: https://www.marxists.org/archive/marx/works/1847/wage-labour/
+  chars: 96360
+08_Marx_Value_Price_and_Profit.txt
+  index: https://www.marxists.org/archive/marx/works/1865/value-price-profit/
+  chars: 141431
+09_Marx_Economic_Philosophic_Manuscripts_1844.txt
+  index: https://www.marxists.org/archive/marx/works/1844/manuscripts/
+  chars: 342584
+10_Marx_Poverty_of_Philosophy.txt
+  index: https://www.marxists.org/archive/marx/works/1847/poverty-philosophy/
+  chars: 319591
+11_Engels_Anti_Duhring.txt
+  index: https://www.marxists.org/archive/marx/works/1877/anti-duhring/
+  chars: 836825
+12_Engels_Socialism_Utopian_and_Scientific.txt
+  index: https://www.marxists.org/archive/marx/works/1880/soc-utop/
+  chars: 165639
+13_Engels_Origin_of_the_Family.txt
+  index: https://www.marxists.org/archive/marx/works/1884/origin-family/
+  chars: 422004
+14_Lenin_Imperialism_Highest_Stage.txt
+  index: https://www.marxists.org/archive/lenin/works/1916/imp-hsc/
+  chars: 274717
+15_Lenin_Development_of_Capitalism_in_Russia.txt
+  index: https://www.marxists.org/archive/lenin/works/1899/devel/
+  chars: 1334954
+16_Hilferding_Finance_Capital.txt
+  index: https://www.marxists.org/archive/hilferding/1910/finkap/
+  chars: 1172523
+17_Luxemburg_Accumulation_of_Capital.txt
+  index: https://www.marxists.org/archive/luxemburg/1913/accumulation-capital/
+  chars: 1019090
+18_Luxemburg_Reform_or_Revolution.txt
+  index: https://www.marxists.org/archive/luxemburg/1900/reform-revolution/
+  chars: 158843
+19_Bukharin_Imperialism_and_World_Economy.txt
+  index: https://www.marxists.org/archive/bukharin/works/1917/imperial/
+  chars: 358318
+20_Mandel_Introduction_to_Marxist_Economic_Theory.txt
+  index: https://www.marxists.org/archive/mandel/1967/intromet/
+  chars: 163960
