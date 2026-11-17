@@ -116,6 +116,41 @@ class RagEngine:
             pass
         return [query]
 
+    def ask_stream(self, question, k=None, titles=None):
+        if self.retriever is None:
+            yield ("status", "Loading index...")
+            self.load_index()
+        yield ("status", "Preparing search queries...")
+        queries = self.prepare_queries(question)
+        yield ("status", "Embedding query...")
+        qvecs = embed_texts(
+            queries, self.settings.embed_model, self.settings.ollama_url
+        )
+        yield ("status", "Retrieving passages...")
+        picked = self.retriever.search(
+            qvecs, queries, k or self.settings.top_k, titles
+        )
+        blocks = []
+        sources = []
+        for i, (rid, _) in enumerate(picked, 1):
+            c = self.retriever.chunks[rid]
+            blocks.append(f"[{i}] {c['title']}\nSOURCE: {c['source']}\n\n{c['text']}")
+            sources.append({"n": i, "title": c["title"], "source": c["source"]})
+        yield ("queries", queries)
+        yield ("sources", sources)
+        context = "\n\n---\n\n".join(blocks)
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": f"Excerpts:\n\n{context}\n\n---\n\nQuestion: {question}",
+            },
+        ]
+        yield ("status", "Generating answer...")
+        for piece in self.api.chat_stream(messages):
+            yield ("delta", piece)
+        yield ("done", None)
+
     def ask(self, question, k=None, titles=None, progress=None):
         if self.retriever is None:
             if progress:

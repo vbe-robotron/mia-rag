@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mia-rag</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">M</span>
+      <div>
+        <h1>mia-rag</h1>
+        <p>Marxist economics reader</p>
+      </div>
+    </div>
+    <div class="pills">
+      <span id="pill-index" class="pill">index: …</span>
+      <span id="pill-ollama" class="pill">ollama: …</span>
+      <span id="pill-key" class="pill">api key: …</span>
+    </div>
+    <div class="top-actions">
+      <button id="btn-new" class="ghost">New</button>
+      <button id="btn-build" class="ghost">Rebuild index</button>
+      <button id="btn-settings" class="primary">Settings</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="aside-head">
+        <h2>Books</h2>
+        <div class="mini-actions">
+          <button id="books-all" class="link">All</button>
+          <button id="books-none" class="link">Clear</button>
+        </div>
+      </div>
+      <p class="hint">未選択なら全20冊を対象にします。</p>
+      <div id="book-list" class="book-list"></div>
+      <div class="sidebar-foot">
+        <label for="k">取得する抜粋数: <output id="k-out">10</output></label>
+        <input id="k" type="range" min="4" max="20" step="1" value="10">
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="setup" class="banner hidden">
+        <div>
+          <strong>セットアップが必要です</strong>
+          <p id="setup-text"></p>
+        </div>
+        <div class="banner-actions">
+          <button id="setup-settings" class="ghost">Open settings</button>
+          <button id="setup-build" class="primary">Build index</button>
+        </div>
+      </div>
+
+      <div id="chat" class="chat">
+        <div class="empty" id="empty">
+          <h3>20冊のマルクス経済学古典に質問する</h3>
+          <p>例: 「資本の原始的蓄積における暴力の役割は？」</p>
+          <p>例: 「帝国主義と金融資本の関係を、レーニンとヒルファーディングに即して」</p>
+        </div>
+      </div>
+
+      <div class="composer">
+        <textarea id="question" rows="3" placeholder="質問を入力…  (Ctrl/⌘ + Enter で送信)"></textarea>
+        <div class="composer-actions">
+          <button id="btn-stop" class="ghost hidden">Stop</button>
+          <button id="btn-ask" class="primary">Ask</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="modal-settings" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Settings</h2>
+        <button class="icon" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <label>Corpus folder <input id="s-corpus" type="text"></label>
+        <label>Index folder <input id="s-data" type="text"></label>
+        <label>OpenCode Go API key
+          <input id="s-key" type="password" autocomplete="off" placeholder="sk-…">
+        </label>
+        <label class="inline"><input id="s-clear-key" type="checkbox"> 保存済みキーを削除</label>
+        <p class="hint">キーはローカルの設定ファイル (0600) に保存され、ブラウザには返されません。空欄なら既存の設定・環境変数・OpenCode認証を使用します。</p>
+        <div class="grid2">
+          <label>API base URL <input id="s-base" type="text"></label>
+          <label>Chat model <input id="s-model" type="text"></label>
+          <label>Ollama URL <input id="s-ollama" type="text"></label>
+          <label>Embedding model <input id="s-embed" type="text"></label>
+          <label>Passages (top k) <input id="s-k" type="number" min="1" max="50"></label>
+        </div>
+        <div id="settings-status" class="status-line"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost" data-close>Cancel</button>
+        <button id="btn-save-settings" class="primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-build" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Rebuild index</h2>
+        <button class="icon" data-close>×</button>
+      </div>
+      <div class="modal-body">
+        <label>Corpus folder <input id="b-corpus" type="text"></label>
+        <label>Index folder <input id="b-data" type="text"></label>
+        <p class="hint">チャンク化 → 埋め込み → 全文検索索引の順に構築します。CPUのみの場合、埋め込みに30〜60分かかります。</p>
+        <label class="inline"><input id="b-skip" type="checkbox"> 埋め込みをスキップ（既存の埋め込みを再利用）</label>
+        <pre id="build-log" class="build-log"></pre>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost" data-close>Close</button>
+        <button id="btn-start-build" class="primary">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
