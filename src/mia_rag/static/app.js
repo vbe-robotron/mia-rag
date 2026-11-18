@@ -9,7 +9,7 @@ const state = {
   busy: false,
   abort: null,
   k: 10,
-  deep: false,
+  deep: true,
   rebuildNeeded: false,
 };
 
@@ -688,6 +688,7 @@ function bind() {
 
 (async function init() {
   bind();
+  state.deep = $("#deep").checked;
   try {
     renderSettings(await api("/api/settings"));
     await loadBooks();
