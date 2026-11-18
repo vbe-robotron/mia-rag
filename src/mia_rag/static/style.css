@@ -24,13 +24,21 @@ body {
   background: var(--bs-tertiary-bg);
 }
 
-.offcanvas-lg {
-  width: 300px;
+@media (min-width: 992px) {
+  body { overflow: hidden; }
+  .container-fluid > .row { height: calc(100vh - 57px); flex-wrap: nowrap; }
+  .sidebar, .main { height: 100%; }
+  .sidebar .offcanvas-body { height: 100%; overflow: hidden; }
+  .book-list { min-height: 0; }
+}
+
+@media (max-width: 991.98px) {
+  .offcanvas-lg { width: 300px; }
 }
 
 .book-list {
   overflow-y: auto;
-  min-height: 120px;
+  min-height: 0;
 }
 
 .author-group {
@@ -87,6 +95,7 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
 .chat {

@@ -36,6 +36,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
 
 app = FastAPI(title="mia-rag")
+
+
+@app.middleware("http")
+async def no_cache(request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 _cache = {"key": None, "retriever": None}
