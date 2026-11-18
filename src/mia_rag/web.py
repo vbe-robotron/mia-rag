@@ -189,7 +189,10 @@ def post_settings(body: SettingsBody):
     ):
         value = getattr(body, field)
         if value is not None and value.strip():
-            setattr(s, field, value.strip())
+            value = value.strip()
+            if field in ("corpus_dir", "data_dir"):
+                value = os.path.abspath(os.path.expanduser(value))
+            setattr(s, field, value)
     if body.top_k is not None:
         s.top_k = max(1, min(50, body.top_k))
     if body.reasoning is not None:
@@ -381,9 +384,9 @@ def build(body: BuildBody):
         return JSONResponse({"error": "a build is already running"}, status_code=409)
     s = load_settings()
     if body.corpus_dir and body.corpus_dir.strip():
-        s.corpus_dir = body.corpus_dir.strip()
+        s.corpus_dir = os.path.abspath(os.path.expanduser(body.corpus_dir.strip()))
     if body.data_dir and body.data_dir.strip():
-        s.data_dir = body.data_dir.strip()
+        s.data_dir = os.path.abspath(os.path.expanduser(body.data_dir.strip()))
     save_settings(s)
     q = queue.Queue()
 
