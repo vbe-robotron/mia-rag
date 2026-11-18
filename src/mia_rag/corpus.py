@@ -215,7 +215,7 @@ def _fetch(url, timeout=45):
         return r.read().decode("utf-8", "replace"), r.headers.get("Content-Type", "")
 
 
-def crawl_work(url, max_pages=120, progress=None):
+def crawl_work(url, max_pages=80, progress=None, max_attempts=120, time_budget=240):
     import time
     import urllib.parse
 
@@ -224,27 +224,37 @@ def crawl_work(url, max_pages=120, progress=None):
     queue = [url]
     pages = []
     title = ""
-    while queue and len(pages) < max_pages:
+    attempts = 0
+    deadline = time.time() + time_budget
+    while (
+        queue
+        and len(pages) < max_pages
+        and attempts < max_attempts
+        and time.time() < deadline
+    ):
         u = queue.pop(0)
         u = u.split("#")[0]
         if u in seen:
             continue
         seen.add(u)
+        attempts += 1
         try:
             data, ctype = _fetch(u)
         except Exception:
             continue
         if "html" not in ctype and "<html" not in data[:500].lower():
             continue
+        text = html_to_text(data)
+        low = text.lower()
+        if "out-of-date link" in low or "page not found" in low or len(text) < 800:
+            continue
         if not title:
             m = re.search(r"<title[^>]*>(.*?)</title>", data, re.I | re.S)
             if m:
                 title = html_to_text(m.group(1)).strip()
-        text = html_to_text(data)
-        if len(text) > 800:
-            pages.append((u, text))
-            if progress:
-                progress(f"fetched {len(pages)} pages: {u.rsplit('/', 1)[-1]}")
+        pages.append((u, text))
+        if progress:
+            progress(f"fetched {len(pages)} pages: {u.rsplit('/', 1)[-1]}")
         links = re.findall(r'href=["\']([^"\']+)["\']', data, re.I)
         nxt = []
         for href in links:
@@ -260,7 +270,7 @@ def crawl_work(url, max_pages=120, progress=None):
                 nxt.append(full)
         nxt.sort(key=lambda x: (0 if re.search(r"/(ch|chapter|part|preface|intro|appendix)", x, re.I) else 1, x))
         queue.extend(nxt[:500])
-        time.sleep(0.15)
+        time.sleep(0.1)
     if progress:
         progress(f"crawled {len(pages)} pages")
     return title, pages

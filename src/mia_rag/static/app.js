@@ -9,7 +9,7 @@ const state = {
   busy: false,
   abort: null,
   k: 10,
-  deep: true,
+  mode: "mapreduce",
   rebuildNeeded: false,
 };
 
@@ -240,7 +240,10 @@ function selectedFiles() {
 function updateHint() {
   const n = checkedBooks().size;
   let text = n ? `${n}冊を対象` : "全文献を対象";
-  if (state.deep) text += n ? " · 全文モード" : " · 全文モードは文献選択が必要";
+  const mode = state.mode || "mapreduce";
+  if (mode === "full") text += n ? " · 全文モード" : " · 全文には文献選択が必要";
+  else if (mode === "mapreduce") text += " · 多段要約";
+  else text += " · 検索";
   $("#composer-hint").textContent = text;
 }
 
@@ -421,7 +424,7 @@ async function ask() {
   };
 
   const files = selectedFiles();
-  const mode = state.deep && files.length ? "full" : "retrieval";
+  const mode = state.mode === "full" && !files.length ? "mapreduce" : state.mode;
   try {
     const res = await fetch("/api/ask", {
       method: "POST",
@@ -557,6 +560,37 @@ async function renderLibrary() {
   });
 }
 
+async function pollRecommended() {
+  try {
+    const st = await api("/api/corpus/recommended/status");
+    const el = $("#lib-rec-status");
+    if (st.running) {
+      el.textContent = `取得中 ${st.done}/${st.total}: ${st.current || ""}`;
+      setTimeout(pollRecommended, 2000);
+    } else {
+      el.textContent = `完了: 追加 ${st.added}, スキップ ${st.skipped}` +
+        (st.errors && st.errors.length ? `, エラー ${st.errors.length}` : "");
+      if (st.added) {
+        state.rebuildNeeded = true;
+        renderSettings(state.settings);
+        renderLibrary();
+      }
+    }
+  } catch (e) {
+    $("#lib-rec-status").textContent = "状態取得に失敗: " + e.message;
+  }
+}
+
+async function startRecommended() {
+  try {
+    await api("/api/corpus/recommended", { method: "POST" });
+    $("#lib-rec-status").textContent = "開始しました…";
+    pollRecommended();
+  } catch (e) {
+    $("#lib-rec-status").textContent = "失敗: " + e.message;
+  }
+}
+
 async function uploadFile() {
   const input = $("#lib-file");
   if (!input.files.length) return;
@@ -665,12 +699,13 @@ function bind() {
   $("#btn-save-settings").onclick = saveSettings;
   $("#btn-start-build").onclick = startBuild;
   $("#lib-upload").onclick = uploadFile;
+  $("#lib-recommended").onclick = startRecommended;
   $("#lib-add-url").onclick = addUrl;
   $("#book-search").addEventListener("input", renderBooks);
   $("#author-filter").addEventListener("change", renderBooks);
   $("#books-all").onclick = () => { $$("#book-list .book-check").forEach((b) => (b.checked = true)); updateHint(); };
   $("#books-none").onclick = () => { $$("#book-list .book-check").forEach((b) => (b.checked = false)); updateHint(); };
-  $("#deep").addEventListener("change", (e) => { state.deep = e.target.checked; updateHint(); });
+  $("#mode").addEventListener("change", (e) => { state.mode = e.target.value; updateHint(); });
   $("#question").addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); ask(); }
   });
@@ -690,7 +725,8 @@ function bind() {
 
 (async function init() {
   bind();
-  state.deep = $("#deep").checked;
+  state.mode = $("#mode").value;
+  updateHint();
   try {
     renderSettings(await api("/api/settings"));
     await loadBooks();

@@ -31,7 +31,18 @@ def nav_ids(chunks):
 
 def ensure_fts(chunks, fts_path):
     if os.path.exists(fts_path) and os.path.getsize(fts_path) > 0:
-        return
+        try:
+            con = sqlite3.connect(fts_path)
+            (count,) = con.execute("SELECT count(*) FROM chunks").fetchone()
+            con.close()
+            if count == len(chunks):
+                return
+        except Exception:
+            pass
+        try:
+            os.remove(fts_path)
+        except OSError:
+            pass
     os.makedirs(os.path.dirname(os.path.abspath(fts_path)), exist_ok=True)
     tmp = fts_path + ".tmp"
     if os.path.exists(tmp):

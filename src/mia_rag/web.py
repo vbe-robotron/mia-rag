@@ -30,6 +30,7 @@ from .corpus import (
 from .embed import build_embeddings
 from .index import Retriever, ensure_fts, load_chunks
 from .rag import RagEngine
+from .works import RECOMMENDED
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -40,6 +41,16 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 _cache = {"key": None, "retriever": None}
 _cache_lock = threading.Lock()
 _build_lock = threading.Lock()
+_import_lock = threading.Lock()
+_import_state = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "current": "",
+    "added": 0,
+    "skipped": 0,
+    "errors": [],
+}
 
 
 def sse(event, data):
@@ -241,6 +252,88 @@ async def upload(file: UploadFile = File(...)):
     return {"ok": True, "file": name}
 
 
+def _store_work(s, title, author, text, url):
+    prefix = next_prefix(s.corpus_dir)
+    stem = safe_filename((author + "_" + (title or "document")).replace(" ", "_"))
+    stem = os.path.splitext(stem)[0][:80]
+    name = f"{prefix:02d}_{stem}.txt"
+    os.makedirs(s.corpus_dir, exist_ok=True)
+    with open(os.path.join(s.corpus_dir, name), "w", encoding="utf-8") as f:
+        f.write(f"----- SOURCE: {url} -----\n\n{text}\n")
+    catalog = load_catalog(s.data_dir)
+    book = os.path.splitext(name)[0]
+    catalog.setdefault("docs", {})[book] = {"title": title or book, "author": author}
+    save_catalog(s.data_dir, catalog)
+    return name
+
+
+@app.get("/api/corpus/recommended")
+def recommended_list():
+    return {"works": RECOMMENDED, "state": _import_state}
+
+
+@app.get("/api/corpus/recommended/status")
+def recommended_status():
+    return _import_state
+
+
+@app.post("/api/corpus/recommended")
+def recommended_import():
+    if not _import_lock.acquire(blocking=False):
+        return JSONResponse({"error": "import already running"}, status_code=409)
+    s = load_settings()
+    state = _import_state
+    state.update(
+        running=True, total=len(RECOMMENDED), done=0, current="", added=0,
+        skipped=0, errors=[],
+    )
+
+    def work():
+        try:
+            catalog = load_catalog(s.data_dir)
+            existing = {v.get("title", "").lower() for v in catalog.get("docs", {}).values()}
+            for i, w in enumerate(RECOMMENDED, 1):
+                state["current"] = w["title"]
+                if w["title"].lower() in existing:
+                    state["skipped"] += 1
+                    state["done"] = i
+                    continue
+                try:
+                    if w.get("crawl", True):
+                        found, pages = crawl_work(w["url"])
+                        if not pages:
+                            raise RuntimeError("no pages found")
+                        text = "\n\n".join(
+                            f"----- SOURCE: {u} -----\n\n{t}" for u, t in pages
+                        )
+                        title = w["title"] or found
+                    else:
+                        req = urllib.request.Request(
+                            w["url"], headers={"User-Agent": "Mozilla/5.0 mia-rag/0.1"}
+                        )
+                        with urllib.request.urlopen(req, timeout=60) as r:
+                            raw = r.read().decode("utf-8", "replace")
+                            ctype = r.headers.get("Content-Type", "")
+                        text = (
+                            html_to_text(raw)
+                            if "html" in ctype or "<html" in raw[:500].lower()
+                            else raw
+                        )
+                        title = w["title"]
+                    _store_work(s, title, w["author"], text, w["url"])
+                    state["added"] += 1
+                except Exception as e:
+                    state["errors"].append(f"{w['title']}: {e}")
+                state["done"] = i
+        finally:
+            state["running"] = False
+            state["current"] = ""
+            _import_lock.release()
+
+    threading.Thread(target=work, daemon=True).start()
+    return _import_state
+
+
 @app.post("/api/corpus/url")
 def add_url(body: UrlBody):
     s = load_settings()
@@ -249,6 +342,7 @@ def add_url(body: UrlBody):
         return JSONResponse({"error": "invalid URL"}, status_code=400)
     title = body.title or ""
     author = body.author or "Web"
+    source_url = url
     try:
         if body.crawl:
             found_title, pages = crawl_work(url)
@@ -277,22 +371,8 @@ def add_url(body: UrlBody):
     if not text.strip():
         return JSONResponse({"error": "no text extracted"}, status_code=400)
     title = re.sub(r"\s*[-|–]\s*Marxists Internet Archive.*$", "", title, flags=re.I).strip()
-    prefix = next_prefix(s.corpus_dir)
-    stem = safe_filename((author + "_" + (title or "document")).replace(" ", "_"))
-    stem = os.path.splitext(stem)[0][:80]
-    name = f"{prefix:02d}_{stem}.txt"
-    os.makedirs(s.corpus_dir, exist_ok=True)
-    with open(os.path.join(s.corpus_dir, name), "w", encoding="utf-8") as f:
-        f.write(f"----- SOURCE: {url} -----\n\n{text}\n")
-
-    catalog = load_catalog(s.data_dir)
-    book = os.path.splitext(name)[0]
-    catalog.setdefault("docs", {})[book] = {
-        "title": title or book,
-        "author": author,
-    }
-    save_catalog(s.data_dir, catalog)
-    return {"ok": True, "file": name, "title": title or book, "author": author}
+    name = _store_work(s, title, author, text, source_url)
+    return {"ok": True, "file": name, "title": title, "author": author}
 
 
 @app.delete("/api/corpus/{name}")

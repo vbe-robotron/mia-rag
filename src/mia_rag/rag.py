@@ -27,8 +27,13 @@ TUTOR_PROMPT = (
     "You may supply standard background context without citation, but never invent "
     "quotations or attributions. Do not open with disclaimers about the sources and do "
     "not make the answer mainly about what the sources lack; if something important is "
-    "unsupported, mention it briefly at the end. Use headings and short paragraphs. "
-    "Answer in the language of the question."
+    "unsupported, mention it briefly at the end. "
+    "Interpret the material through historical materialism and dialectics: explain ideas "
+    "in terms of the mode of production, class relations, and historical conditions; look "
+    "for contradictions, their unity and struggle, quantitative change becoming "
+    "qualitative change, and the negation of the negation. Treat capitalism as a "
+    "historically specific, contradictory totality rather than a set of timeless facts. "
+    "Use headings and short paragraphs. Answer in the language of the question."
 )
 
 
@@ -211,12 +216,81 @@ class RagEngine:
             )
         return blocks, sources
 
+    def ask_mapreduce(self, question, k=36, titles=None, files=None):
+        if self.retriever is None:
+            yield ("status", "Loading index...")
+            self.load_index()
+        yield ("status", "Preparing search queries...")
+        queries = self.prepare_queries(question)
+        yield ("status", "Embedding query...")
+        qvecs = embed_texts(
+            queries, self.settings.embed_model, self.settings.ollama_url
+        )
+        yield ("status", "Collecting a broad candidate set...")
+        picked = self.retriever.search(
+            qvecs, queries, max(k, 24), titles, files, expand=False
+        )
+        blocks, sources = self._group(picked)
+        yield ("queries", queries)
+        yield ("sources", sources)
+        summaries = []
+        batch = 6
+        for i in range(0, len(blocks), batch):
+            part = blocks[i : i + batch]
+            yield (
+                "status",
+                f"Summarizing sources {i + 1}-{i + len(part)} of {len(blocks)}...",
+            )
+            msg = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a careful research assistant. From the numbered sources, "
+                        "extract the points that bear on the question: definitions, causal "
+                        "claims, contradictions, historical conditions, and debates. Cite "
+                        "the source numbers as [n]. Be concise (at most 220 words). Do not "
+                        "invent quotations or claims."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Question: {question}\n\nSources:\n\n"
+                    + "\n\n---\n\n".join(part),
+                },
+            ]
+            summaries.append(self.api.chat(msg, max_tokens=1500, temperature=0.2))
+        combined = "\n\n".join(
+            f"### Partial summary {i + 1}\n{s}" for i, s in enumerate(summaries)
+        )
+        yield ("status", "Synthesizing the final answer...")
+        messages = [
+            {
+                "role": "system",
+                "content": TUTOR_PROMPT
+                + "\n\nYou are given partial summaries of many sources, each citing "
+                "source numbers [n]. Write one unified explanation; preserve the citation "
+                "numbers and do not claim more than the summaries support.",
+            },
+            {
+                "role": "user",
+                "content": f"Question: {question}\n\nPartial summaries:\n\n{combined}",
+            },
+        ]
+        for piece in self.api.chat_stream(messages, max_tokens=8000):
+            yield ("delta", piece)
+        yield ("done", None)
+
     def ask_stream(
         self, question, k=None, titles=None, files=None, mode="retrieval"
     ):
         if self.retriever is None:
             yield ("status", "Loading index...")
             self.load_index()
+
+        if mode == "mapreduce":
+            for event in self.ask_mapreduce(question, k or 36, titles, files):
+                yield event
+            return
 
         if mode == "full" and files:
             yield ("status", "Loading selected books in full...")

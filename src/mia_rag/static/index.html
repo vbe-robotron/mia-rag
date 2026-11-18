@@ -58,13 +58,15 @@
           <div id="book-list" class="book-list flex-grow-1"></div>
 
           <div class="border-top pt-3 mt-2">
-            <div class="form-check form-switch mb-2">
-              <input class="form-check-input" type="checkbox" id="deep" checked>
-              <label class="form-check-label small" for="deep">全文モード</label>
-            </div>
+            <label class="form-label small mb-1" for="mode">回答モード</label>
+            <select id="mode" class="form-select form-select-sm mb-2">
+              <option value="mapreduce">多段要約（広範囲）</option>
+              <option value="retrieval">検索（高速）</option>
+              <option value="full">全文（選択文献）</option>
+            </select>
             <p class="text-secondary mb-2" style="font-size:11px">
-              選択した文献を丸ごとモデルに渡します。長すぎる場合は自動で検索に切替。
-              1冊なら数分、応答は遅めです。
+              多段要約は多数の章を要約して統合。全文は選択文献を丸ごと投入。
+              全文は文献選択が必要で、1冊でも応答は遅めです。
             </p>
             <label for="k" class="form-label small mb-1">
               抜粋数: <span id="k-out">10</span>
@@ -223,6 +225,16 @@
                     <label class="form-check-label small" for="lib-url-crawl">リンク先の章ページも取得</label>
                   </div>
                   <button id="lib-add-url" class="btn btn-sm btn-outline-light">Fetch &amp; add</button>
+                </div>
+              </div>
+              <div class="card mt-3">
+                <div class="card-header py-2">おすすめ文献を一括追加</div>
+                <div class="card-body">
+                  <p class="small text-secondary mb-2">
+                    唯物史観・弁証法・政治経済学の主要文献をMIAから追加します（既存はスキップ）。
+                  </p>
+                  <button id="lib-recommended" class="btn btn-sm btn-outline-light">Add recommended</button>
+                  <div id="lib-rec-status" class="small mt-2"></div>
                 </div>
               </div>
               <div id="lib-status" class="small mt-3"></div>
