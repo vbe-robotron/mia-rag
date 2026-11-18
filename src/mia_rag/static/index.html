@@ -90,7 +90,7 @@
 
         <div id="chat" class="chat px-3">
           <div class="empty text-center text-secondary" id="empty">
-            <h3 class="h4 text-light mt-5">20冊のマルクス経済学古典に質問する</h3>
+            <h3 class="h4 text-light mt-5">マルクス経済学の古典に質問する</h3>
             <p class="mb-1">例: 「資本の原始的蓄積における暴力の役割は？」</p>
             <p>例: 「帝国主義と金融資本の関係を、レーニンとヒルファーディングに即して」</p>
           </div>
@@ -163,7 +163,14 @@
               <label class="form-label">Passages (top k)</label>
               <input id="s-k" type="number" min="1" max="50" class="form-control">
             </div>
-            <div class="col-md-6 d-flex align-items-end">
+            <div class="col-md-6">
+              <label class="form-label">Answer style</label>
+              <select id="s-style" class="form-select">
+                <option value="tutor">講義モード（概念を解説）</option>
+                <option value="strict">引用厳守（抜粋のみ）</option>
+              </select>
+            </div>
+            <div class="col-12">
               <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" id="s-reasoning">
                 <label class="form-check-label" for="s-reasoning">Deep reasoning（遅いが精度重視）</label>

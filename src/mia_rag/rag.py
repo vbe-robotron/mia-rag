@@ -8,13 +8,27 @@ from .corpus import clean, find_text_files, split_pages
 from .embed import embed_texts
 from .index import Retriever
 
-SYSTEM_PROMPT = (
+STRICT_PROMPT = (
     "You are a research assistant specializing in Marxist political economy. "
     "Answer the user's question using ONLY the provided excerpts. "
     "Cite supporting excerpts with bracketed numbers like [1], [3]. "
     "Quote key passages when useful. If the excerpts are insufficient, say so explicitly "
     "and distinguish what the texts do and do not establish. "
     "Answer in the language of the user's question."
+)
+
+TUTOR_PROMPT = (
+    "You are an expert teacher of Marxist political economy writing for an intelligent "
+    "reader who wants to understand the subject, not a literature review. "
+    "Write a coherent, well-structured explanation that actually teaches the concept: "
+    "define it, explain its internal logic, show how its parts fit together, and note "
+    "the main debates. Synthesize the provided sources into your own argument instead "
+    "of summarizing excerpt by excerpt. Cite specific claims and quotations with [n]. "
+    "You may supply standard background context without citation, but never invent "
+    "quotations or attributions. Do not open with disclaimers about the sources and do "
+    "not make the answer mainly about what the sources lack; if something important is "
+    "unsupported, mention it briefly at the end. Use headings and short paragraphs. "
+    "Answer in the language of the question."
 )
 
 
@@ -159,13 +173,43 @@ class RagEngine:
         return [query]
 
     def _messages(self, question, context):
+        style = getattr(self.settings, "answer_style", "tutor")
+        prompt = STRICT_PROMPT if style == "strict" else TUTOR_PROMPT
         return [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": prompt},
             {
                 "role": "user",
                 "content": f"Excerpts:\n\n{context}\n\n---\n\nQuestion: {question}",
             },
         ]
+
+    def _group(self, picked):
+        order = []
+        by_url = {}
+        for rid, _ in picked:
+            c = self.retriever.chunks[rid]
+            url = c["source"]
+            if url not in by_url:
+                by_url[url] = {
+                    "n": len(order) + 1,
+                    "title": c["title"],
+                    "source": url,
+                    "texts": [],
+                }
+                order.append(by_url[url])
+            by_url[url]["texts"].append(c["text"])
+        blocks = []
+        sources = []
+        for item in order:
+            block = (
+                f"[{item['n']}] {item['title']}\nSOURCE: {item['source']}\n\n"
+                + "\n\n".join(item["texts"])
+            )
+            blocks.append(block)
+            sources.append(
+                {"n": item["n"], "title": item["title"], "source": item["source"]}
+            )
+        return blocks, sources
 
     def ask_stream(
         self, question, k=None, titles=None, files=None, mode="retrieval"
@@ -202,12 +246,7 @@ class RagEngine:
             files,
             expand=(mode == "wide"),
         )
-        blocks = []
-        sources = []
-        for i, (rid, _) in enumerate(picked, 1):
-            c = self.retriever.chunks[rid]
-            blocks.append(f"[{i}] {c['title']}\nSOURCE: {c['source']}\n\n{c['text']}")
-            sources.append({"n": i, "title": c["title"], "source": c["source"]})
+        blocks, sources = self._group(picked)
         yield ("queries", queries)
         yield ("sources", sources)
         yield ("status", "Generating answer...")
@@ -240,12 +279,7 @@ class RagEngine:
             files,
             expand=(mode == "wide"),
         )
-        blocks = []
-        sources = []
-        for i, (rid, _) in enumerate(picked, 1):
-            c = self.retriever.chunks[rid]
-            blocks.append(f"[{i}] {c['title']}\nSOURCE: {c['source']}\n\n{c['text']}")
-            sources.append({"n": i, "title": c["title"], "source": c["source"]})
+        blocks, sources = self._group(picked)
         context = "\n\n---\n\n".join(blocks)
         if progress:
             progress("Generating answer...")

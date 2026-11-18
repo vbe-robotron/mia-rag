@@ -71,6 +71,7 @@ def settings_payload(s):
         "embed_model": s.embed_model,
         "top_k": s.top_k,
         "reasoning": s.reasoning,
+        "answer_style": s.answer_style,
         "full_text_max_chars": s.full_text_max_chars,
         "api_key_set": bool(s.api_key)
         or bool(os.environ.get("OPENCODE_API_KEY"))
@@ -143,6 +144,7 @@ class SettingsBody(BaseModel):
     embed_model: str | None = None
     top_k: int | None = None
     reasoning: bool | None = None
+    answer_style: str | None = None
     full_text_max_chars: int | None = None
     api_key: str | None = None
     clear_api_key: bool = False
@@ -197,6 +199,8 @@ def post_settings(body: SettingsBody):
         s.top_k = max(1, min(50, body.top_k))
     if body.reasoning is not None:
         s.reasoning = body.reasoning
+    if body.answer_style in ("tutor", "strict"):
+        s.answer_style = body.answer_style
     if body.full_text_max_chars is not None:
         s.full_text_max_chars = max(100000, min(3000000, body.full_text_max_chars))
     if body.clear_api_key:

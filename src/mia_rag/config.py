@@ -28,6 +28,7 @@ class Settings:
     chunk_size: int = 1400
     overlap: int = 250
     reasoning: bool = False
+    answer_style: str = "tutor"
     full_text_max_chars: int = 2800000
 
     @property

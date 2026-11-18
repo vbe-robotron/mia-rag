@@ -273,7 +273,7 @@ function clearHistory() {
 function newChat() {
   $("#chat").innerHTML = `
     <div class="empty text-center text-secondary" id="empty">
-      <h3 class="h4 text-light mt-5">20冊のマルクス経済学古典に質問する</h3>
+      <h3 class="h4 text-light mt-5">マルクス経済学の古典に質問する</h3>
       <p class="mb-1">例: 「資本の原始的蓄積における暴力の役割は？」</p>
       <p>例: 「帝国主義と金融資本の関係を、レーニンとヒルファーディングに即して」</p>
     </div>`;
@@ -478,6 +478,7 @@ function fillSettings(s) {
   $("#s-embed").value = s.embed_model || "";
   $("#s-k").value = s.top_k || 10;
   $("#s-reasoning").checked = !!s.reasoning;
+  $("#s-style").value = s.answer_style || "tutor";
   $("#s-key").value = "";
   $("#s-key").placeholder = s.api_key_set ? "保存済み（変更する場合のみ入力）" : "sk-…";
   $("#s-clear-key").checked = false;
@@ -494,6 +495,7 @@ async function saveSettings() {
     embed_model: $("#s-embed").value,
     top_k: Number($("#s-k").value) || 10,
     reasoning: $("#s-reasoning").checked,
+    answer_style: $("#s-style").value,
     clear_api_key: $("#s-clear-key").checked,
   };
   const key = $("#s-key").value.trim();

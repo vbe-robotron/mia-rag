@@ -184,4 +184,15 @@ class Retriever:
                 picked.append((rid, s))
                 seen.add(rid)
         picked = picked[:k]
-        return self._expand(picked) if expand else picked
+        if expand:
+            picked = self._expand(picked)
+        primary, extra = [], []
+        per_source = {}
+        for rid, score in picked:
+            src = self.chunks[rid]["source"]
+            if per_source.get(src, 0) < 1:
+                primary.append((rid, score))
+                per_source[src] = per_source.get(src, 0) + 1
+            else:
+                extra.append((rid, score))
+        return (primary + extra)[: max(k, len(primary))]
