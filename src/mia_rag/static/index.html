@@ -1,129 +1,278 @@
 <!doctype html>
-<html lang="ja">
+<html lang="ja" data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>mia-rag</title>
+  <link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
+  <nav class="navbar bg-body-tertiary border-bottom sticky-top px-3">
+    <button class="btn btn-outline-secondary d-lg-none me-2" type="button"
+      data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar">☰</button>
+    <a class="navbar-brand d-flex align-items-center gap-2 me-3" href="#">
       <span class="logo">M</span>
-      <div>
-        <h1>mia-rag</h1>
-        <p>Marxist economics reader</p>
-      </div>
+      <span>
+        <span class="d-block fw-semibold lh-1">mia-rag</span>
+        <small class="text-secondary" style="font-size:10px">Marxist economics reader</small>
+      </span>
+    </a>
+    <div class="d-none d-md-flex gap-2 me-3">
+      <span id="pill-index" class="badge rounded-pill text-bg-secondary">index: …</span>
+      <span id="pill-ollama" class="badge rounded-pill text-bg-secondary">ollama: …</span>
+      <span id="pill-key" class="badge rounded-pill text-bg-secondary">api key: …</span>
     </div>
-    <div class="pills">
-      <span id="pill-index" class="pill">index: …</span>
-      <span id="pill-ollama" class="pill">ollama: …</span>
-      <span id="pill-key" class="pill">api key: …</span>
+    <div class="ms-auto d-flex gap-2">
+      <button id="btn-new" class="btn btn-sm btn-outline-secondary">New</button>
+      <button id="btn-library" class="btn btn-sm btn-outline-secondary"
+        data-bs-toggle="modal" data-bs-target="#modal-library">Library</button>
+      <button id="btn-build" class="btn btn-sm btn-outline-secondary"
+        data-bs-toggle="modal" data-bs-target="#modal-build">Rebuild</button>
+      <button id="btn-settings" class="btn btn-sm btn-danger"
+        data-bs-toggle="modal" data-bs-target="#modal-settings">Settings</button>
     </div>
-    <div class="top-actions">
-      <button id="btn-new" class="ghost">New</button>
-      <button id="btn-build" class="ghost">Rebuild index</button>
-      <button id="btn-settings" class="primary">Settings</button>
-    </div>
-  </header>
+  </nav>
 
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="aside-head">
-        <h2>Books</h2>
-        <div class="mini-actions">
-          <button id="books-all" class="link">All</button>
-          <button id="books-none" class="link">Clear</button>
+  <div class="container-fluid p-0">
+    <div class="row g-0">
+      <aside class="col-lg-3 col-xl-2 offcanvas-lg offcanvas-start sidebar border-end"
+        tabindex="-1" id="sidebar">
+        <div class="offcanvas-header d-lg-none">
+          <h5 class="offcanvas-title">Library</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas"
+            data-bs-target="#sidebar" aria-label="Close"></button>
         </div>
-      </div>
-      <p class="hint">未選択なら全20冊を対象にします。</p>
-      <div id="book-list" class="book-list"></div>
-      <div class="sidebar-foot">
-        <label for="k">取得する抜粋数: <output id="k-out">10</output></label>
-        <input id="k" type="range" min="4" max="20" step="1" value="10">
-      </div>
-    </aside>
+        <div class="offcanvas-body d-flex flex-column p-3">
+          <h6 class="text-uppercase text-secondary small mb-2">Books</h6>
+          <input id="book-search" class="form-control form-control-sm mb-2"
+            type="search" placeholder="タイトル・著者で検索">
+          <select id="author-filter" class="form-select form-select-sm mb-2">
+            <option value="">すべての著者</option>
+          </select>
+          <div class="d-flex justify-content-between mb-1">
+            <button id="books-all" class="btn btn-link btn-sm p-0">全選択</button>
+            <button id="books-none" class="btn btn-link btn-sm p-0">解除</button>
+          </div>
+          <p class="text-secondary small mb-2">未選択なら全文献を対象にします。</p>
+          <div id="book-list" class="book-list flex-grow-1"></div>
 
-    <main class="main">
-      <div id="setup" class="banner hidden">
-        <div>
-          <strong>セットアップが必要です</strong>
-          <p id="setup-text"></p>
+          <div class="border-top pt-3 mt-2">
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="deep">
+              <label class="form-check-label small" for="deep">全文モード</label>
+            </div>
+            <p class="text-secondary mb-2" style="font-size:11px">
+              選択した文献を丸ごとモデルに渡します。長すぎる場合は自動で検索に切替。
+              1冊なら数分、応答は遅めです。
+            </p>
+            <label for="k" class="form-label small mb-1">
+              抜粋数: <span id="k-out">10</span>
+            </label>
+            <input id="k" type="range" class="form-range" min="4" max="20" step="1" value="10">
+          </div>
         </div>
-        <div class="banner-actions">
-          <button id="setup-settings" class="ghost">Open settings</button>
-          <button id="setup-build" class="primary">Build index</button>
-        </div>
-      </div>
+      </aside>
 
-      <div id="chat" class="chat">
-        <div class="empty" id="empty">
-          <h3>20冊のマルクス経済学古典に質問する</h3>
-          <p>例: 「資本の原始的蓄積における暴力の役割は？」</p>
-          <p>例: 「帝国主義と金融資本の関係を、レーニンとヒルファーディングに即して」</p>
+      <main class="col-lg-9 col-xl-10 main">
+        <div class="px-3 pt-3">
+          <div id="setup" class="alert alert-warning d-none align-items-center gap-3">
+            <div class="flex-grow-1">
+              <strong>セットアップが必要です</strong>
+              <div id="setup-text" class="small mt-1"></div>
+            </div>
+            <button id="setup-settings" class="btn btn-sm btn-outline-dark"
+              data-bs-toggle="modal" data-bs-target="#modal-settings">Settings</button>
+            <button id="setup-build" class="btn btn-sm btn-dark"
+              data-bs-toggle="modal" data-bs-target="#modal-build">Build</button>
+          </div>
         </div>
-      </div>
 
-      <div class="composer">
-        <textarea id="question" rows="3" placeholder="質問を入力…  (Ctrl/⌘ + Enter で送信)"></textarea>
-        <div class="composer-actions">
-          <button id="btn-stop" class="ghost hidden">Stop</button>
-          <button id="btn-ask" class="primary">Ask</button>
+        <div id="chat" class="chat px-3">
+          <div class="empty text-center text-secondary" id="empty">
+            <h3 class="h4 text-light mt-5">20冊のマルクス経済学古典に質問する</h3>
+            <p class="mb-1">例: 「資本の原始的蓄積における暴力の役割は？」</p>
+            <p>例: 「帝国主義と金融資本の関係を、レーニンとヒルファーディングに即して」</p>
+          </div>
         </div>
-      </div>
-    </main>
-  </div>
 
-  <div id="modal-settings" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-head">
-        <h2>Settings</h2>
-        <button class="icon" data-close>×</button>
-      </div>
-      <div class="modal-body">
-        <label>Corpus folder <input id="s-corpus" type="text"></label>
-        <label>Index folder <input id="s-data" type="text"></label>
-        <label>OpenCode Go API key
-          <input id="s-key" type="password" autocomplete="off" placeholder="sk-…">
-        </label>
-        <label class="inline"><input id="s-clear-key" type="checkbox"> 保存済みキーを削除</label>
-        <p class="hint">キーはローカルの設定ファイル (0600) に保存され、ブラウザには返されません。空欄なら既存の設定・環境変数・OpenCode認証を使用します。</p>
-        <div class="grid2">
-          <label>API base URL <input id="s-base" type="text"></label>
-          <label>Chat model <input id="s-model" type="text"></label>
-          <label>Ollama URL <input id="s-ollama" type="text"></label>
-          <label>Embedding model <input id="s-embed" type="text"></label>
-          <label>Passages (top k) <input id="s-k" type="number" min="1" max="50"></label>
+        <div class="composer border-top p-3">
+          <div class="input-group">
+            <textarea id="question" class="form-control" rows="2"
+              placeholder="質問を入力…  (Ctrl/⌘ + Enter で送信)"></textarea>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mt-2">
+            <span id="composer-hint" class="text-secondary small"></span>
+            <div class="d-flex gap-2">
+              <button id="btn-stop" class="btn btn-outline-secondary d-none">Stop</button>
+              <button id="btn-ask" class="btn btn-danger px-4">Ask</button>
+            </div>
+          </div>
         </div>
-        <div id="settings-status" class="status-line"></div>
-      </div>
-      <div class="modal-foot">
-        <button class="ghost" data-close>Cancel</button>
-        <button id="btn-save-settings" class="primary">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="modal-build" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-head">
-        <h2>Rebuild index</h2>
-        <button class="icon" data-close>×</button>
-      </div>
-      <div class="modal-body">
-        <label>Corpus folder <input id="b-corpus" type="text"></label>
-        <label>Index folder <input id="b-data" type="text"></label>
-        <p class="hint">チャンク化 → 埋め込み → 全文検索索引の順に構築します。CPUのみの場合、埋め込みに30〜60分かかります。</p>
-        <label class="inline"><input id="b-skip" type="checkbox"> 埋め込みをスキップ（既存の埋め込みを再利用）</label>
-        <pre id="build-log" class="build-log"></pre>
-      </div>
-      <div class="modal-foot">
-        <button class="ghost" data-close>Close</button>
-        <button id="btn-start-build" class="primary">Start</button>
-      </div>
+      </main>
     </div>
   </div>
 
+  <!-- Settings -->
+  <div class="modal fade" id="modal-settings" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Settings</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Corpus folder</label>
+              <input id="s-corpus" type="text" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Index folder</label>
+              <input id="s-data" type="text" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">OpenCode Go API key</label>
+              <input id="s-key" type="password" class="form-control" autocomplete="off" placeholder="sk-…">
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" id="s-clear-key">
+                <label class="form-check-label" for="s-clear-key">保存済みキーを削除</label>
+              </div>
+              <div class="form-text">
+                ローカルの設定ファイル (0600) に保存され、ブラウザには返されません。
+                空欄なら環境変数 <code>OPENCODE_API_KEY</code> または OpenCode の認証を使用します。
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">API base URL</label>
+              <input id="s-base" type="text" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Chat model</label>
+              <input id="s-model" type="text" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Ollama URL</label>
+              <input id="s-ollama" type="text" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Embedding model</label>
+              <input id="s-embed" type="text" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Passages (top k)</label>
+              <input id="s-k" type="number" min="1" max="50" class="form-control">
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="s-reasoning">
+                <label class="form-check-label" for="s-reasoning">Deep reasoning（遅いが精度重視）</label>
+              </div>
+            </div>
+          </div>
+          <div id="settings-status" class="small mt-3"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button id="btn-save-settings" class="btn btn-danger">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Library -->
+  <div class="modal fade" id="modal-library" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Library</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-lg-7">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">Documents</h6>
+                <span id="lib-count" class="badge text-bg-secondary"></span>
+              </div>
+              <div id="lib-list" class="list-group lib-list"></div>
+            </div>
+            <div class="col-lg-5">
+              <div class="card">
+                <div class="card-header py-2">ファイルを追加</div>
+                <div class="card-body">
+                  <input id="lib-file" type="file" accept=".txt,text/plain" class="form-control mb-2">
+                  <button id="lib-upload" class="btn btn-sm btn-danger">Upload .txt</button>
+                </div>
+              </div>
+              <div class="card mt-3">
+                <div class="card-header py-2">URLから追加</div>
+                <div class="card-body d-grid gap-2">
+                  <input id="lib-url" type="url" class="form-control" placeholder="https://www.marxists.org/…">
+                  <input id="lib-url-author" type="text" class="form-control" placeholder="著者（任意）">
+                  <input id="lib-url-title" type="text" class="form-control" placeholder="タイトル（任意）">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="lib-url-crawl" checked>
+                    <label class="form-check-label small" for="lib-url-crawl">リンク先の章ページも取得</label>
+                  </div>
+                  <button id="lib-add-url" class="btn btn-sm btn-outline-light">Fetch &amp; add</button>
+                </div>
+              </div>
+              <div id="lib-status" class="small mt-3"></div>
+              <div class="alert alert-secondary small mt-3 mb-0">
+                追加・削除・メタデータ変更の後は <strong>Rebuild</strong> が必要です。
+                既存文献の後ろに追加した場合は埋め込みを再利用します。
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+          <button class="btn btn-danger" data-bs-dismiss="modal"
+            data-bs-toggle="modal" data-bs-target="#modal-build">Rebuild index</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Build -->
+  <div class="modal fade" id="modal-build" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Rebuild index</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Corpus folder</label>
+              <input id="b-corpus" type="text" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Index folder</label>
+              <input id="b-data" type="text" class="form-control">
+            </div>
+          </div>
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="b-skip">
+            <label class="form-check-label" for="b-skip">埋め込みをスキップ（既存を再利用）</label>
+          </div>
+          <p class="text-secondary small mt-2">
+            チャンク化 → 埋め込み → 全文検索索引の順に構築します。CPUのみの場合、埋め込みに時間がかかります。
+            文献の変更・削除がある場合は埋め込みを最初から作り直します。
+          </p>
+          <pre id="build-log" class="build-log"></pre>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+          <button id="btn-start-build" class="btn btn-danger">Start</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/vendor/bootstrap.bundle.min.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

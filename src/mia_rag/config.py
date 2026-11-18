@@ -27,6 +27,8 @@ class Settings:
     top_k: int = 10
     chunk_size: int = 1400
     overlap: int = 250
+    reasoning: bool = False
+    full_text_max_chars: int = 2800000
 
     @property
     def chunks_path(self):

@@ -1,8 +1,10 @@
 import json
+import os
 import re
 
 from .api import ApiClient
 from .config import Settings
+from .corpus import clean, find_text_files, split_pages
 from .embed import embed_texts
 from .index import Retriever
 
@@ -68,6 +70,45 @@ class RagEngine:
         self.retriever = Retriever(s.chunks_path, s.embeddings_path, s.fts_path)
         return self.retriever
 
+    def _doc_map(self):
+        if self.retriever is None:
+            self.load_index()
+        docs = {d["book"]: d for d in self.retriever.docs()}
+        paths = {}
+        for path in find_text_files(self.settings.corpus_dir):
+            paths[os.path.splitext(os.path.basename(path))[0]] = path
+        return docs, paths
+
+    def full_context(self, files):
+        docs, paths = self._doc_map()
+        budget = self.settings.full_text_max_chars
+        total = 0
+        n = 0
+        parts = []
+        sources = []
+        for book in files:
+            path = paths.get(book)
+            if not path:
+                continue
+            meta = docs.get(book, {})
+            title = meta.get("title") or book
+            with open(path, encoding="utf-8", errors="replace") as f:
+                raw = f.read()
+            for source, page in split_pages(raw):
+                text = clean(page)
+                if not text:
+                    continue
+                n += 1
+                block = f"[{n}] {title}\nSOURCE: {source}\n\n{text}"
+                total += len(block)
+                if total > budget:
+                    return None, None
+                parts.append(block)
+                sources.append({"n": n, "title": title, "source": source})
+        if not parts:
+            return None, None
+        return "\n\n---\n\n".join(parts), sources
+
     def prepare_queries(self, query):
         if is_ascii(query):
             return [query]
@@ -85,6 +126,7 @@ class RagEngine:
                     [{"role": "user", "content": prompt}],
                     max_tokens=max_tokens,
                     temperature=0,
+                    reasoning=True,
                 )
                 data = extract_json(raw)
                 if data and data.get("translation"):
@@ -116,10 +158,35 @@ class RagEngine:
             pass
         return [query]
 
-    def ask_stream(self, question, k=None, titles=None):
+    def _messages(self, question, context):
+        return [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": f"Excerpts:\n\n{context}\n\n---\n\nQuestion: {question}",
+            },
+        ]
+
+    def ask_stream(
+        self, question, k=None, titles=None, files=None, mode="retrieval"
+    ):
         if self.retriever is None:
             yield ("status", "Loading index...")
             self.load_index()
+
+        if mode == "full" and files:
+            yield ("status", "Loading selected books in full...")
+            context, sources = self.full_context(files)
+            if context:
+                yield ("queries", [])
+                yield ("sources", sources)
+                yield ("status", "Generating answer from full text...")
+                for piece in self.api.chat_stream(self._messages(question, context)):
+                    yield ("delta", piece)
+                yield ("done", None)
+                return
+            yield ("status", "Selected books exceed the context budget; using retrieval.")
+
         yield ("status", "Preparing search queries...")
         queries = self.prepare_queries(question)
         yield ("status", "Embedding query...")
@@ -128,7 +195,12 @@ class RagEngine:
         )
         yield ("status", "Retrieving passages...")
         picked = self.retriever.search(
-            qvecs, queries, k or self.settings.top_k, titles
+            qvecs,
+            queries,
+            k or self.settings.top_k,
+            titles,
+            files,
+            expand=(mode == "wide"),
         )
         blocks = []
         sources = []
@@ -138,20 +210,14 @@ class RagEngine:
             sources.append({"n": i, "title": c["title"], "source": c["source"]})
         yield ("queries", queries)
         yield ("sources", sources)
-        context = "\n\n---\n\n".join(blocks)
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"Excerpts:\n\n{context}\n\n---\n\nQuestion: {question}",
-            },
-        ]
         yield ("status", "Generating answer...")
-        for piece in self.api.chat_stream(messages):
+        for piece in self.api.chat_stream(self._messages(question, "\n\n---\n\n".join(blocks))):
             yield ("delta", piece)
         yield ("done", None)
 
-    def ask(self, question, k=None, titles=None, progress=None):
+    def ask(
+        self, question, k=None, titles=None, files=None, mode="retrieval", progress=None
+    ):
         if self.retriever is None:
             if progress:
                 progress("Loading index...")
@@ -167,7 +233,12 @@ class RagEngine:
         if progress:
             progress("Retrieving passages...")
         picked = self.retriever.search(
-            qvecs, queries, k or self.settings.top_k, titles
+            qvecs,
+            queries,
+            k or self.settings.top_k,
+            titles,
+            files,
+            expand=(mode == "wide"),
         )
         blocks = []
         sources = []
@@ -176,18 +247,7 @@ class RagEngine:
             blocks.append(f"[{i}] {c['title']}\nSOURCE: {c['source']}\n\n{c['text']}")
             sources.append({"n": i, "title": c["title"], "source": c["source"]})
         context = "\n\n---\n\n".join(blocks)
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"Excerpts:\n\n{context}\n\n---\n\nQuestion: {question}",
-            },
-        ]
         if progress:
             progress("Generating answer...")
-        answer = self.api.chat(messages, max_tokens=6000)
-        return {
-            "answer": answer,
-            "sources": sources,
-            "queries": queries,
-        }
+        answer = self.api.chat(self._messages(question, context), max_tokens=6000)
+        return {"answer": answer, "sources": sources, "queries": queries}

@@ -45,15 +45,16 @@ class ApiClient:
 
     def chat_stream(self, messages, max_tokens=8000, temperature=0.2):
         url = self.settings.api_base.rstrip("/") + "/chat/completions"
-        payload = json.dumps(
-            {
-                "model": self.settings.model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "stream": True,
-            }
-        ).encode()
+        body = {
+            "model": self.settings.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if not getattr(self.settings, "reasoning", False):
+            body["thinking"] = {"type": "disabled"}
+        payload = json.dumps(body).encode()
         req = urllib.request.Request(url, data=payload, headers=self._headers())
         with urllib.request.urlopen(req, timeout=900) as r:
             for raw in r:
@@ -75,18 +76,20 @@ class ApiClient:
                 if piece:
                     yield piece
 
-    def chat(self, messages, max_tokens=6000, temperature=0.2):
+    def chat(self, messages, max_tokens=6000, temperature=0.2, reasoning=None):
         url = self.settings.api_base.rstrip("/") + "/chat/completions"
+        think = getattr(self.settings, "reasoning", False) if reasoning is None else reasoning
         content = ""
         for attempt in range(3):
-            payload = json.dumps(
-                {
-                    "model": self.settings.model,
-                    "messages": messages,
-                    "max_tokens": max_tokens * (2**attempt),
-                    "temperature": temperature,
-                }
-            ).encode()
+            body = {
+                "model": self.settings.model,
+                "messages": messages,
+                "max_tokens": max_tokens * (2**attempt),
+                "temperature": temperature,
+            }
+            if not think:
+                body["thinking"] = {"type": "disabled"}
+            payload = json.dumps(body).encode()
             req = urllib.request.Request(url, data=payload, headers=self._headers())
             with urllib.request.urlopen(req, timeout=900) as r:
                 data = json.loads(r.read())

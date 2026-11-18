@@ -1,14 +1,19 @@
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => [...document.querySelectorAll(sel)];
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const HISTORY_KEY = "mia-rag-history-v1";
 
 const state = {
   settings: null,
-  books: [],
+  docs: [],
+  authors: [],
   busy: false,
   abort: null,
   k: 10,
+  deep: false,
+  rebuildNeeded: false,
 };
 
+/* ---------- markdown ---------- */
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -26,16 +31,9 @@ function inlineMd(text) {
 function mdToHtml(src) {
   const lines = escapeHtml(src).split("\n");
   const out = [];
-  let i = 0;
-  let para = [];
-  let list = null;
-  let quote = [];
-
+  let i = 0, para = [], list = null, quote = [];
   const flushPara = () => {
-    if (para.length) {
-      out.push("<p>" + inlineMd(para.join("<br>")) + "</p>");
-      para = [];
-    }
+    if (para.length) { out.push("<p>" + inlineMd(para.join("<br>")) + "</p>"); para = []; }
   };
   const flushList = () => {
     if (list) {
@@ -44,78 +42,51 @@ function mdToHtml(src) {
     }
   };
   const flushQuote = () => {
-    if (quote.length) {
-      out.push("<blockquote><p>" + inlineMd(quote.join("<br>")) + "</p></blockquote>");
-      quote = [];
-    }
+    if (quote.length) { out.push("<blockquote><p>" + inlineMd(quote.join("<br>")) + "</p></blockquote>"); quote = []; }
   };
-
   while (i < lines.length) {
     const line = lines[i];
     if (line.trim().startsWith("```")) {
       flushPara(); flushList(); flushQuote();
       const buf = [];
       i++;
-      while (i < lines.length && !lines[i].trim().startsWith("```")) {
-        buf.push(lines[i]);
-        i++;
-      }
+      while (i < lines.length && !lines[i].trim().startsWith("```")) { buf.push(lines[i]); i++; }
       i++;
       out.push("<pre><code>" + buf.join("\n") + "</code></pre>");
       continue;
     }
-    if (!line.trim()) {
-      flushPara(); flushList(); flushQuote();
-      i++;
-      continue;
-    }
+    if (!line.trim()) { flushPara(); flushList(); flushQuote(); i++; continue; }
     const h = line.match(/^(#{1,4})\s+(.*)$/);
     if (h) {
       flushPara(); flushList(); flushQuote();
       const n = h[1].length;
       out.push(`<h${n}>` + inlineMd(h[2]) + `</h${n}>`);
-      i++;
-      continue;
+      i++; continue;
     }
     const q = line.match(/^&gt;\s?(.*)$/);
-    if (q) {
-      flushPara(); flushList();
-      quote.push(q[1]);
-      i++;
-      continue;
-    }
+    if (q) { flushPara(); flushList(); quote.push(q[1]); i++; continue; }
     const ul = line.match(/^\s*[-*]\s+(.*)$/);
     const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
     if (ul || ol) {
       flushPara(); flushQuote();
       const tag = ul ? "ul" : "ol";
-      if (!list || list.tag !== tag) {
-        flushList();
-        list = { tag, items: [] };
-      }
+      if (!list || list.tag !== tag) { flushList(); list = { tag, items: [] }; }
       list.items.push((ul || ol)[1]);
-      i++;
-      continue;
+      i++; continue;
     }
     flushList(); flushQuote();
-    para.push(line);
-    i++;
+    para.push(line); i++;
   }
   flushPara(); flushList(); flushQuote();
   return out.join("\n");
 }
 
+/* ---------- http ---------- */
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const res = await fetch(path, { ...options });
   if (!res.ok) {
     let msg = res.statusText;
-    try {
-      const data = await res.json();
-      msg = data.error || data.detail || msg;
-    } catch (_) {}
+    try { const d = await res.json(); msg = d.error || d.detail || msg; } catch (_) {}
     throw new Error(msg);
   }
   return res.json();
@@ -140,23 +111,21 @@ async function readSse(res, onEvent) {
         else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
       }
       if (!dataLines.length) continue;
-      let data = null;
-      try {
-        data = JSON.parse(dataLines.join("\n"));
-      } catch (_) {
-        data = dataLines.join("\n");
-      }
+      let data;
+      try { data = JSON.parse(dataLines.join("\n")); } catch (_) { data = dataLines.join("\n"); }
       onEvent(event, data);
     }
   }
 }
 
+/* ---------- status ---------- */
 function setPill(el, text, kind) {
   el.textContent = text;
-  el.className = "pill" + (kind ? " " + kind : "");
+  el.className = "badge rounded-pill " + (kind === "ok" ? "text-bg-success"
+    : kind === "warn" ? "text-bg-warning" : "text-bg-secondary");
 }
 
-function refreshSettingsView(s) {
+function renderSettings(s) {
   state.settings = s;
   const idx = s.index;
   const ready = idx.chunks.exists && idx.embeddings.exists && idx.fts.exists;
@@ -166,70 +135,165 @@ function refreshSettingsView(s) {
   $("#k-out").textContent = $("#k").value;
   state.k = Number($("#k").value);
 
-  const setup = $("#setup");
   const missing = [];
   if (!s.api_key_set) missing.push("OpenCode Go の API キーが未設定です。");
-  if (!ready) missing.push("索引が未構築です（Corpus folder を設定して Build index）。");
+  if (!ready) missing.push("索引が未構築です（Library / Rebuild から構築してください）。");
+  if (state.rebuildNeeded) missing.push("文献が変更されています。Rebuild を実行してください。");
+  const setup = $("#setup");
   if (missing.length) {
     $("#setup-text").textContent = missing.join(" ");
-    setup.classList.remove("hidden");
+    setup.classList.remove("d-none");
+    setup.classList.add("d-flex");
   } else {
-    setup.classList.add("hidden");
+    setup.classList.add("d-none");
+    setup.classList.remove("d-flex");
   }
+  updateHint();
 }
 
 async function refreshHealth() {
   try {
     const h = await api("/api/health");
-    setPill($("#pill-ollama"), "ollama: " + (h.ollama.ok ? "ready" : "check"),
-      h.ollama.ok ? "ok" : "warn");
-    setPill($("#pill-key"), "api key: " + (h.api_key ? "set" : "missing"),
-      h.api_key ? "ok" : "warn");
+    setPill($("#pill-ollama"), "ollama: " + (h.ollama.ok ? "ready" : "check"), h.ollama.ok ? "ok" : "warn");
+    setPill($("#pill-key"), "api key: " + (h.api_key ? "set" : "missing"), h.api_key ? "ok" : "warn");
   } catch (_) {}
 }
 
-async function loadSettings() {
-  const s = await api("/api/settings");
-  refreshSettingsView(s);
-  return s;
+/* ---------- books ---------- */
+function checkedBooks() {
+  return new Set($$("#book-list .book-check:checked").map((c) => c.value));
+}
+
+function renderBooks() {
+  const checked = checkedBooks();
+  const q = ($("#book-search").value || "").toLowerCase();
+  const author = $("#author-filter").value;
+  const list = $("#book-list");
+  list.innerHTML = "";
+  const groups = {};
+  state.docs.forEach((d) => {
+    if (author && d.author !== author) return;
+    if (q && !(d.title + " " + d.author + " " + d.book).toLowerCase().includes(q)) return;
+    const key = d.author || "その他";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(d);
+  });
+  const names = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+  names.forEach((name, gi) => {
+    const wrap = document.createElement("div");
+    wrap.className = "author-group";
+    const btn = document.createElement("button");
+    btn.className = "author-toggle";
+    btn.type = "button";
+    btn.dataset.bsToggle = "collapse";
+    btn.dataset.bsTarget = "#author-" + gi;
+    btn.setAttribute("aria-expanded", "true");
+    btn.innerHTML = `<span>${escapeHtml(name)}</span><span class="badge text-bg-secondary ms-auto">${groups[name].length}</span>`;
+    const body = document.createElement("div");
+    body.className = "collapse show";
+    body.id = "author-" + gi;
+    groups[name].forEach((d) => {
+      const label = document.createElement("label");
+      label.className = "book-item";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.className = "form-check-input book-check";
+      cb.value = d.book;
+      cb.checked = checked.has(d.book);
+      cb.addEventListener("change", updateHint);
+      const span = document.createElement("span");
+      span.textContent = d.title;
+      span.title = `${d.title}${d.chunks ? " · " + d.chunks + " chunks" : ""}`;
+      label.append(cb, span);
+      body.append(label);
+    });
+    wrap.append(btn, body);
+    list.append(wrap);
+  });
+  if (!names.length) {
+    list.innerHTML = '<div class="text-secondary small p-2">該当する文献がありません。</div>';
+  }
+  updateHint();
+}
+
+function renderAuthors() {
+  const sel = $("#author-filter");
+  const cur = sel.value;
+  const authors = [...new Set(state.docs.map((d) => d.author).filter(Boolean))].sort();
+  state.authors = authors;
+  sel.innerHTML = '<option value="">すべての著者</option>' +
+    authors.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("");
+  sel.value = authors.includes(cur) ? cur : "";
 }
 
 async function loadBooks() {
   const data = await api("/api/books");
-  state.books = data.titles || [];
-  const list = $("#book-list");
-  list.innerHTML = "";
-  state.books.forEach((title) => {
-    const label = document.createElement("label");
-    label.className = "book";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.value = title;
-    const span = document.createElement("span");
-    span.textContent = title;
-    label.append(cb, span);
-    list.append(label);
+  state.docs = data.docs || [];
+  renderAuthors();
+  renderBooks();
+}
+
+function selectedFiles() {
+  return [...checkedBooks()];
+}
+
+function updateHint() {
+  const n = checkedBooks().size;
+  let text = n ? `${n}冊を対象` : "全文献を対象";
+  if (state.deep) text += n ? " · 全文モード" : " · 全文モードは文献選択が必要";
+  $("#composer-hint").textContent = text;
+}
+
+/* ---------- messages ---------- */
+function saveHistory() {
+  const items = [];
+  $$("#chat .msg").forEach((wrap) => {
+    if (wrap.classList.contains("user")) {
+      items.push({ role: "user", text: $(".bubble", wrap).textContent });
+    } else {
+      const ans = $(".answer", wrap);
+      if (!ans || ans.hidden) return;
+      const sources = $$(".source-item", wrap).map((row) => ({
+        n: Number($(".source-num", row).textContent.replace(/\D/g, "")),
+        title: $(".source-title", row).textContent,
+        source: $("a", row).getAttribute("href"),
+      }));
+      items.push({ role: "assistant", text: ans.dataset.raw || "", sources });
+    }
   });
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(-24)));
+  } catch (_) {}
 }
 
-function selectedTitles() {
-  const boxes = $$("#book-list input:checked");
-  return boxes.length ? boxes.map((b) => b.value) : null;
+function clearHistory() {
+  localStorage.removeItem(HISTORY_KEY);
 }
 
-function ensureEmptyHidden() {
-  $("#empty").classList.add("hidden");
+function newChat() {
+  $("#chat").innerHTML = `
+    <div class="empty text-center text-secondary" id="empty">
+      <h3 class="h4 text-light mt-5">20冊のマルクス経済学古典に質問する</h3>
+      <p class="mb-1">例: 「資本の原始的蓄積における暴力の役割は？」</p>
+      <p>例: 「帝国主義と金融資本の関係を、レーニンとヒルファーディングに即して」</p>
+    </div>`;
+  clearHistory();
+}
+
+function hideEmpty() {
+  const e = $("#empty");
+  if (e) e.remove();
 }
 
 function scrollIfNearBottom() {
   const chat = $("#chat");
-  if (chat.scrollHeight - chat.scrollTop - chat.clientHeight < 220) {
+  if (chat.scrollHeight - chat.scrollTop - chat.clientHeight < 240) {
     chat.scrollTop = chat.scrollHeight;
   }
 }
 
 function addUserMessage(text) {
-  ensureEmptyHidden();
+  hideEmpty();
   const wrap = document.createElement("div");
   wrap.className = "msg user";
   const bubble = document.createElement("div");
@@ -240,83 +304,129 @@ function addUserMessage(text) {
   scrollIfNearBottom();
 }
 
-function addAssistantMessage() {
-  ensureEmptyHidden();
+function makeSources(sources) {
+  if (!sources || !sources.length) return null;
+  const box = document.createElement("details");
+  box.className = "sources";
+  box.open = true;
+  box.innerHTML = `<summary>Sources (${sources.length})</summary>`;
+  const list = document.createElement("div");
+  sources.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "source-item";
+    row.id = `src-${s.n}-${Math.random().toString(36).slice(2)}`;
+    row.innerHTML = `<span class="source-num">[${s.n}]</span>
+      <span><span class="source-title">${escapeHtml(s.title)}</span><br>
+      <a href="${escapeHtml(s.source)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a></span>`;
+    list.append(row);
+  });
+  box.append(list);
+  return box;
+}
+
+function wireAnswer(wrap, raw) {
+  const answer = $(".answer", wrap);
+  answer.dataset.raw = raw;
+  answer.addEventListener("click", (e) => {
+    const cite = e.target.closest(".cite");
+    if (!cite) return;
+    const row = $$(".source-item", wrap)[Number(cite.dataset.cite) - 1];
+    if (row) {
+      $(".sources", wrap).open = true;
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.style.background = "rgba(224,75,75,.18)";
+      setTimeout(() => (row.style.background = ""), 1200);
+    }
+  });
+  const actions = document.createElement("div");
+  actions.className = "msg-actions";
+  const copy = document.createElement("button");
+  copy.className = "btn btn-sm btn-outline-secondary";
+  copy.textContent = "Copy";
+  copy.onclick = () => {
+    navigator.clipboard.writeText(raw);
+    copy.textContent = "Copied";
+    setTimeout(() => (copy.textContent = "Copy"), 1200);
+  };
+  actions.append(copy);
+  wrap.append(actions);
+}
+
+function addAssistantMessage(text, sources) {
+  hideEmpty();
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant";
+  const role = document.createElement("div");
+  role.className = "role";
+  role.textContent = "mia-rag";
+  const answer = document.createElement("div");
+  answer.className = "answer";
+  answer.innerHTML = mdToHtml(text);
+  wrap.append(role, answer);
+  const src = makeSources(sources);
+  if (src) wrap.append(src);
+  wireAnswer(wrap, text);
+  $("#chat").append(wrap);
+}
+
+function addStreamingMessage() {
+  hideEmpty();
   const wrap = document.createElement("div");
   wrap.className = "msg assistant";
   wrap.innerHTML = `
     <div class="role">mia-rag</div>
-    <div class="status-line"><span class="dot"></span><span class="st">準備中…</span></div>
-    <div class="answer" hidden></div>
-    <details class="sources" hidden><summary>Sources</summary><div class="source-list"></div></details>
-    <div class="msg-actions" hidden>
-      <button class="ghost copy">Copy</button>
-    </div>`;
+    <div class="status-line"><span class="spinner-border spinner-border-sm"></span><span class="st">準備中…</span></div>
+    <div class="answer d-none"></div>`;
   $("#chat").append(wrap);
   scrollIfNearBottom();
   return wrap;
 }
 
 function setStatus(wrap, text) {
-  const line = wrap.querySelector(".status-line");
-  line.classList.remove("hidden");
+  const line = $(".status-line", wrap);
+  if (!line) return;
+  line.classList.remove("d-none");
   line.querySelector(".st").textContent = text;
 }
 
 function hideStatus(wrap) {
-  wrap.querySelector(".status-line").classList.add("hidden");
+  const line = $(".status-line", wrap);
+  if (line) line.classList.add("d-none");
 }
 
-function renderSources(wrap, sources) {
-  const box = wrap.querySelector("details.sources");
-  const list = wrap.querySelector(".source-list");
-  list.innerHTML = "";
-  sources.forEach((s) => {
-    const row = document.createElement("div");
-    row.className = "source-item";
-    row.id = `src-${s.n}`;
-    row.innerHTML = `<span class="source-num">[${s.n}]</span>
-      <span><span class="source-title">${escapeHtml(s.title)}</span><br>
-      <a href="${escapeHtml(s.source)}" target="_blank" rel="noopener">${escapeHtml(s.source)}</a></span>`;
-    list.append(row);
-  });
-  const summary = box.querySelector("summary");
-  summary.textContent = `Sources (${sources.length})`;
-  box.hidden = false;
-  box.open = false;
-}
-
+/* ---------- ask ---------- */
 async function ask() {
   if (state.busy) return;
   const q = $("#question").value.trim();
   if (!q) return;
   state.busy = true;
   $("#btn-ask").disabled = true;
-  $("#btn-stop").classList.remove("hidden");
+  $("#btn-stop").classList.remove("d-none");
   state.abort = new AbortController();
 
   addUserMessage(q);
-  const wrap = addAssistantMessage();
-  const answerEl = wrap.querySelector(".answer");
+  const wrap = addStreamingMessage();
+  const answerEl = $(".answer", wrap);
   let raw = "";
-  let renderTimer = null;
   let sources = [];
-
+  let renderTimer = null;
   const scheduleRender = () => {
     if (renderTimer) return;
     renderTimer = setTimeout(() => {
       renderTimer = null;
-      answerEl.hidden = false;
+      answerEl.classList.remove("d-none");
       answerEl.innerHTML = mdToHtml(raw);
       scrollIfNearBottom();
     }, 80);
   };
 
+  const files = selectedFiles();
+  const mode = state.deep && files.length ? "full" : "retrieval";
   try {
     const res = await fetch("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: q, titles: selectedTitles(), k: state.k }),
+      body: JSON.stringify({ question: q, files, k: state.k, mode }),
       signal: state.abort.signal,
     });
     if (!res.ok) {
@@ -330,7 +440,6 @@ async function ask() {
         if (data && data.length) setStatus(wrap, "検索: " + data.join(" · "));
       } else if (event === "sources") {
         sources = data || [];
-        renderSources(wrap, sources);
       } else if (event === "delta") {
         raw += data.text || "";
         scheduleRender();
@@ -340,46 +449,27 @@ async function ask() {
         hideStatus(wrap);
       }
     });
-    answerEl.hidden = false;
+    hideStatus(wrap);
+    answerEl.classList.remove("d-none");
     answerEl.innerHTML = mdToHtml(raw);
-    wrap.querySelector(".msg-actions").hidden = false;
-    if (sources.length) wrap.querySelector("details.sources").open = true;
-    wrap.querySelector(".copy").onclick = () => {
-      navigator.clipboard.writeText(raw);
-      wrap.querySelector(".copy").textContent = "Copied";
-      setTimeout(() => (wrap.querySelector(".copy").textContent = "Copy"), 1200);
-    };
-    wrap.querySelector(".answer").addEventListener("click", (e) => {
-      const cite = e.target.closest(".cite");
-      if (!cite) return;
-      const row = wrap.querySelector(`#src-${cite.dataset.cite}`);
-      if (row) {
-        wrap.querySelector("details.sources").open = true;
-        row.scrollIntoView({ behavior: "smooth", block: "center" });
-        row.style.background = "#2b2230";
-        setTimeout(() => (row.style.background = ""), 1200);
-      }
-    });
+    const src = makeSources(sources);
+    if (src) wrap.insertBefore(src, wrap.querySelector(".msg-actions"));
+    wireAnswer(wrap, raw);
+    saveHistory();
   } catch (err) {
-    if (err.name === "AbortError") {
-      setStatus(wrap, "停止しました");
-    } else {
-      setStatus(wrap, "エラー: " + err.message);
-    }
+    if (err.name === "AbortError") setStatus(wrap, "停止しました");
+    else setStatus(wrap, "エラー: " + err.message);
   } finally {
     state.busy = false;
     state.abort = null;
     $("#btn-ask").disabled = false;
-    $("#btn-stop").classList.add("hidden");
+    $("#btn-stop").classList.add("d-none");
     scrollIfNearBottom();
   }
 }
 
-function openModal(id) { $(id).classList.remove("hidden"); }
-function closeModal(el) { el.classList.add("hidden"); }
-
-async function openSettings() {
-  const s = state.settings || (await loadSettings());
+/* ---------- settings ---------- */
+function fillSettings(s) {
   $("#s-corpus").value = s.corpus_dir || "";
   $("#s-data").value = s.data_dir || "";
   $("#s-base").value = s.api_base || "";
@@ -387,11 +477,11 @@ async function openSettings() {
   $("#s-ollama").value = s.ollama_url || "";
   $("#s-embed").value = s.embed_model || "";
   $("#s-k").value = s.top_k || 10;
+  $("#s-reasoning").checked = !!s.reasoning;
   $("#s-key").value = "";
   $("#s-key").placeholder = s.api_key_set ? "保存済み（変更する場合のみ入力）" : "sk-…";
   $("#s-clear-key").checked = false;
   $("#settings-status").textContent = "";
-  openModal("#modal-settings");
 }
 
 async function saveSettings() {
@@ -403,27 +493,117 @@ async function saveSettings() {
     ollama_url: $("#s-ollama").value,
     embed_model: $("#s-embed").value,
     top_k: Number($("#s-k").value) || 10,
+    reasoning: $("#s-reasoning").checked,
     clear_api_key: $("#s-clear-key").checked,
   };
   const key = $("#s-key").value.trim();
   if (key) body.api_key = key;
   try {
     const s = await api("/api/settings", { method: "POST", body: JSON.stringify(body) });
-    refreshSettingsView(s);
+    renderSettings(s);
     refreshHealth();
-    closeModal($("#modal-settings"));
+    bootstrap.Modal.getInstance($("#modal-settings")).hide();
+    await loadBooks();
   } catch (e) {
     $("#settings-status").textContent = "保存に失敗: " + e.message;
   }
 }
 
-function openBuild() {
+/* ---------- library ---------- */
+async function renderLibrary() {
+  const data = await api("/api/books");
+  state.docs = data.docs || [];
+  const list = $("#lib-list");
+  list.innerHTML = "";
+  $("#lib-count").textContent = state.docs.length + " docs";
+  state.docs.forEach((d) => {
+    const row = document.createElement("div");
+    row.className = "lib-item list-group-item";
+    row.innerHTML = `<div class="meta">
+        <div class="title">${escapeHtml(d.title)}</div>
+        <div class="sub">${escapeHtml(d.author || "—")} · ${Math.round((d.bytes || 0) / 1024)} KB · ${escapeHtml(d.file)}${d.chunks ? " · " + d.chunks + " chunks" : ""}</div>
+      </div>`;
+    const edit = document.createElement("button");
+    edit.className = "btn btn-sm btn-outline-secondary";
+    edit.textContent = "Edit";
+    edit.onclick = async () => {
+      const title = prompt("タイトル", d.title);
+      if (title === null) return;
+      const author = prompt("著者", d.author || "");
+      if (author === null) return;
+      await api("/api/corpus/" + encodeURIComponent(d.file), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, author }),
+      });
+      state.rebuildNeeded = true;
+      renderSettings(state.settings);
+      renderLibrary();
+    };
+    const del = document.createElement("button");
+    del.className = "btn btn-sm btn-outline-danger";
+    del.textContent = "Delete";
+    del.onclick = async () => {
+      if (!confirm(`削除しますか？\n${d.title}\n\n（再構築時に埋め込みを全作り直します）`)) return;
+      await api("/api/corpus/" + encodeURIComponent(d.file), { method: "DELETE" });
+      state.rebuildNeeded = true;
+      renderSettings(state.settings);
+      renderLibrary();
+    };
+    row.append(edit, del);
+    list.append(row);
+  });
+}
+
+async function uploadFile() {
+  const input = $("#lib-file");
+  if (!input.files.length) return;
+  const fd = new FormData();
+  fd.append("file", input.files[0]);
+  $("#lib-status").textContent = "アップロード中…";
+  try {
+    await api("/api/corpus/upload", { method: "POST", body: fd });
+    $("#lib-status").textContent = "追加しました。Rebuild を実行してください。";
+    input.value = "";
+    state.rebuildNeeded = true;
+    renderSettings(state.settings);
+    renderLibrary();
+  } catch (e) {
+    $("#lib-status").textContent = "失敗: " + e.message;
+  }
+}
+
+async function addUrl() {
+  const url = $("#lib-url").value.trim();
+  if (!url) return;
+  $("#lib-status").textContent = "取得中…";
+  try {
+    await api("/api/corpus/url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        author: $("#lib-url-author").value.trim(),
+        title: $("#lib-url-title").value.trim(),
+        crawl: $("#lib-url-crawl").checked,
+      }),
+    });
+    $("#lib-status").textContent = "追加しました。Rebuild を実行してください。";
+    state.rebuildNeeded = true;
+    renderSettings(state.settings);
+    renderLibrary();
+  } catch (e) {
+    $("#lib-status").textContent = "失敗: " + e.message;
+  }
+}
+
+/* ---------- build ---------- */
+function fillBuild() {
   const s = state.settings || {};
   $("#b-corpus").value = s.corpus_dir || "";
   $("#b-data").value = s.data_dir || "";
   $("#build-log").textContent = "";
   $("#btn-start-build").disabled = false;
-  openModal("#modal-build");
 }
 
 async function startBuild() {
@@ -451,7 +631,9 @@ async function startBuild() {
       else if (event === "error") append("ERROR: " + data);
       else if (event === "done") append("完了しました");
     });
-    await loadSettings();
+    state.rebuildNeeded = false;
+    const s = await api("/api/settings");
+    renderSettings(s);
     await loadBooks();
     refreshHealth();
   } catch (e) {
@@ -461,51 +643,56 @@ async function startBuild() {
   }
 }
 
+/* ---------- history ---------- */
+function restoreHistory() {
+  let items = [];
+  try { items = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch (_) {}
+  if (!items.length) return;
+  hideEmpty();
+  items.forEach((m) => {
+    if (m.role === "user") addUserMessage(m.text);
+    else addAssistantMessage(m.text || "", m.sources || []);
+  });
+}
+
+/* ---------- bind ---------- */
 function bind() {
   $("#btn-ask").onclick = ask;
   $("#btn-stop").onclick = () => state.abort && state.abort.abort();
-  $("#btn-new").onclick = () => {
-    $("#chat").innerHTML = "";
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.id = "empty";
-    empty.innerHTML = `<h3>20冊のマルクス経済学古典に質問する</h3>
-      <p>例: 「資本の原始的蓄積における暴力の役割は？」</p>
-      <p>例: 「帝国主義と金融資本の関係を、レーニンとヒルファーディングに即して」</p>`;
-    $("#chat").append(empty);
-  };
-  $("#btn-settings").onclick = openSettings;
-  $("#setup-settings").onclick = openSettings;
-  $("#btn-build").onclick = openBuild;
-  $("#setup-build").onclick = openBuild;
+  $("#btn-new").onclick = newChat;
   $("#btn-save-settings").onclick = saveSettings;
   $("#btn-start-build").onclick = startBuild;
-  $$("[data-close]").forEach((b) => {
-    b.onclick = () => closeModal(b.closest(".modal"));
-  });
-  $$(".modal").forEach((m) => {
-    m.addEventListener("click", (e) => { if (e.target === m) closeModal(m); });
-  });
+  $("#lib-upload").onclick = uploadFile;
+  $("#lib-add-url").onclick = addUrl;
+  $("#book-search").addEventListener("input", renderBooks);
+  $("#author-filter").addEventListener("change", renderBooks);
+  $("#books-all").onclick = () => { $$("#book-list .book-check").forEach((b) => (b.checked = true)); updateHint(); };
+  $("#books-none").onclick = () => { $$("#book-list .book-check").forEach((b) => (b.checked = false)); updateHint(); };
+  $("#deep").addEventListener("change", (e) => { state.deep = e.target.checked; updateHint(); });
   $("#question").addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      ask();
-    }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); ask(); }
   });
   $("#k").addEventListener("input", (e) => {
     state.k = Number(e.target.value);
     $("#k-out").textContent = e.target.value;
   });
-  $("#books-all").onclick = () => $$("#book-list input").forEach((b) => (b.checked = true));
-  $("#books-none").onclick = () => $$("#book-list input").forEach((b) => (b.checked = false));
+  $("#modal-settings").addEventListener("show.bs.modal", () => {
+    if (state.settings) fillSettings(state.settings);
+  });
+  $("#modal-build").addEventListener("show.bs.modal", fillBuild);
+  $("#modal-library").addEventListener("show.bs.modal", () => {
+    $("#lib-status").textContent = "";
+    renderLibrary().catch((e) => ($("#lib-status").textContent = e.message));
+  });
 }
 
 (async function init() {
   bind();
   try {
-    await loadSettings();
+    renderSettings(await api("/api/settings"));
     await loadBooks();
     await refreshHealth();
+    restoreHistory();
   } catch (e) {
     console.error(e);
   }

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mia-rag"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local web UI and CLI for RAG over 20 classic works of Marxist political economy"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,7 +15,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Education",
 ]
-dependencies = ["numpy>=1.24", "fastapi>=0.110", "uvicorn>=0.29"]
+dependencies = ["numpy>=1.24", "fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.9"]
 
 [project.scripts]
 mia-rag = "mia_rag.cli:main"

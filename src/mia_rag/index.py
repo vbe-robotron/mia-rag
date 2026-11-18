@@ -38,7 +38,7 @@ def ensure_fts(chunks, fts_path):
         os.remove(tmp)
     con = sqlite3.connect(tmp)
     con.execute(
-        "CREATE VIRTUAL TABLE chunks USING fts5(text, tokenize='unicode61 remove_diacritics 2')"
+        "CREATE VIRTUAL TABLE chunks USING fts5(text, tokenize='porter unicode61 remove_diacritics 2')"
     )
     con.executemany(
         "INSERT INTO chunks(rowid, text) VALUES (?, ?)",
@@ -121,23 +121,67 @@ class Retriever:
                 seen.append(c["title"])
         return seen
 
-    def allowed_ids(self, titles=None):
+    def docs(self):
+        docs = {}
+        for c in self.chunks:
+            key = c.get("book") or c["title"]
+            if key not in docs:
+                docs[key] = {
+                    "book": key,
+                    "title": c["title"],
+                    "author": c.get("author", ""),
+                    "chunks": 0,
+                }
+            docs[key]["chunks"] += 1
+        return list(docs.values())
+
+    def allowed_ids(self, titles=None, files=None):
         allowed = set(range(len(self.chunks))) - self.nav
-        if titles:
+        if files:
+            wanted = set(files)
+            allowed = {i for i in allowed if self.chunks[i].get("book") in wanted}
+        elif titles:
             wanted = set(titles)
             allowed = {i for i in allowed if self.chunks[i]["title"] in wanted}
         return allowed
 
-    def search(self, qvecs, queries, k=10, titles=None):
-        allowed = self.allowed_ids(titles)
+    def _expand(self, picked, extra=6):
+        seen = {rid for rid, _ in picked}
+        out = list(picked)
+        for rid, score in picked:
+            if len(out) >= len(picked) + extra:
+                break
+            base = self.chunks[rid]
+            for nid in (rid - 1, rid + 1):
+                if (
+                    nid in seen
+                    or nid < 0
+                    or nid >= len(self.chunks)
+                    or nid in self.nav
+                ):
+                    continue
+                c = self.chunks[nid]
+                if c.get("book") == base.get("book") and c["source"] == base["source"]:
+                    out.append((nid, score * 0.99))
+                    seen.add(nid)
+        return out
+
+    def search(self, qvecs, queries, k=10, titles=None, files=None, expand=False):
+        allowed = self.allowed_ids(titles, files)
         vec = vector_search(qvecs, self.emb, allowed, max(k * 3, 30))
         bm = [fts_search(self.fts_path, q, allowed, max(k * 3, 30)) for q in queries]
         fused = rrf(vec, bm)
-        pinned = [hits[0] for hits in bm[1:] if hits]
+        pinned = []
+        for hits in bm[1:]:
+            for rid, _ in hits[:2]:
+                if rid not in [p[0] for p in pinned]:
+                    pinned.append((rid, 0))
+        pinned = pinned[:6]
         picked = []
         seen = set()
         for rid, s in fused[: max(k - len(pinned), 1)] + pinned:
             if rid not in seen:
                 picked.append((rid, s))
                 seen.add(rid)
-        return picked[:k]
+        picked = picked[:k]
+        return self._expand(picked) if expand else picked

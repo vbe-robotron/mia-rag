@@ -3,7 +3,7 @@ import os
 import sys
 
 from .config import Settings, load_settings, save_settings
-from .corpus import TITLES, build_chunks
+from .corpus import TITLES, build_chunks, default_meta, find_text_files
 from .embed import build_embeddings
 from .index import Retriever, ensure_fts, load_chunks
 from .rag import RagEngine
@@ -29,13 +29,14 @@ def build(settings, skip_embed=False):
     def progress(msg):
         print(msg, flush=True)
 
-    n = build_chunks(
+    info = build_chunks(
         settings.corpus_dir,
         settings.chunks_path,
         settings.chunk_size,
         settings.overlap,
         progress,
     )
+    n = sum(v["chunks"] for v in info.values())
     if not skip_embed:
         build_embeddings(
             settings.chunks_path,
@@ -58,7 +59,9 @@ def main(argv=None):
     ap.add_argument("--model", help="chat model")
     ap.add_argument("--ollama", help="Ollama base URL")
     ap.add_argument("--k", type=int, default=None, help="passages to retrieve")
-    ap.add_argument("--books", help="comma-separated title filters, e.g. 01,17")
+    ap.add_argument("--books", help="comma-separated title/author filters, e.g. 01,Marx")
+    ap.add_argument("--full", action="store_true", help="feed selected books in full")
+    ap.add_argument("--reasoning", action="store_true", help="enable model reasoning")
     ap.add_argument("--show", action="store_true", help="print retrieved sources")
     args = ap.parse_args(argv)
 
@@ -70,16 +73,27 @@ def main(argv=None):
     if not args.question:
         ap.error("a question is required (or use --build)")
 
+    if args.reasoning:
+        settings.reasoning = True
     engine = RagEngine(settings)
     titles = None
+    files = None
     if args.books:
         needles = [b.strip().lower() for b in args.books.split(",") if b.strip()]
-        titles = [
-            t for t in TITLES.values() if any(n in t.lower() for n in needles)
-        ]
+        titles = []
+        files = []
+        for path in find_text_files(settings.corpus_dir):
+            base = os.path.basename(path)
+            book = os.path.splitext(base)[0]
+            meta = default_meta(base)
+            blob = (book + " " + meta["title"] + " " + meta["author"]).lower()
+            if any(n in blob or book[:2] == n for n in needles):
+                titles.append(meta["title"])
+                files.append(book)
         if not titles:
             sys.exit("no titles matched --books")
-    result = engine.ask(" ".join(args.question), args.k, titles)
+    mode = "full" if args.full and files else "retrieval"
+    result = engine.ask(" ".join(args.question), args.k, titles, files, mode)
     print(result["answer"])
     if args.show:
         print("\n--- sources ---")

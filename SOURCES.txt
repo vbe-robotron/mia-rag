@@ -62,3 +62,20 @@ Retrieved: 2026-11-17
 20_Mandel_Introduction_to_Marxist_Economic_Theory.txt
   index: https://www.marxists.org/archive/mandel/1967/intromet/
   chars: 163960
+
+Library additions (GUI URL import; not bundled with the repository)
+-------------------------------------------------------------------
+21_Marx_Critique_of_the_Gotha_Programme.txt
+  index: https://www.marxists.org/archive/marx/works/1875/gotha/
+22_Engels_The_Housing_Question.txt
+  index: https://www.marxists.org/archive/marx/works/1872/housing-question/
+23_Luxemburg_The_Mass_Strike.txt
+  index: https://www.marxists.org/archive/luxemburg/1906/mass-strike/
+24_Kautsky_The_Class_Struggle.txt
+  index: https://www.marxists.org/archive/kautsky/1892/erfurt/
+25_Bernstein_Evolutionary_Socialism.txt
+  index: https://www.marxists.org/reference/archive/bernstein/works/1899/evsoc/
+26_Rubin_Essays_on_Marx's_Theory_of_Value.txt
+  index: https://www.marxists.org/archive/rubin/value/
+27_Engels_The_Condition_of_the_Working_Class_in_England.txt
+  index: https://www.marxists.org/archive/marx/works/1845/condition-working-class/
